@@ -1,5 +1,6 @@
 """
 Long Video Generation Tool
+基于 Seedance 2.0 (doubao-seedance-2-0-260128) 的长视频生成工具
 支持基于场景序列的长视频生成，保持视觉连贯性
 """
 
