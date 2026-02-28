@@ -14,6 +14,7 @@ from langchain_core.messages import AnyMessage
 from coze_coding_utils.runtime_ctx.context import default_headers
 from storage.memory.memory_saver import get_memory_saver
 from tools.long_video_tool import generate_long_video, generate_single_video
+from tools.long_video_tool_v2 import generate_long_video_with_progress
 
 # 配置文件路径
 LLM_CONFIG = "config/agent_llm_config.json"
@@ -74,7 +75,7 @@ def build_agent(ctx=None):
     agent = create_agent(
         model=llm,
         system_prompt=cfg.get("sp"),
-        tools=[generate_long_video, generate_single_video],
+        tools=[generate_long_video_with_progress, generate_single_video],
         checkpointer=get_memory_saver(),
         state_schema=AgentState,
     )
