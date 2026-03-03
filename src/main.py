@@ -4,6 +4,7 @@ import json
 import threading
 import traceback
 import logging
+import warnings
 from typing import Any, Dict, Iterable, AsyncIterable, AsyncGenerator, Optional
 import cozeloop
 import uvicorn
@@ -21,6 +22,11 @@ from coze_coding_utils.log.config import LOG_LEVEL
 from coze_coding_utils.error.classifier import ErrorClassifier, classify_error
 from coze_coding_utils.helper.stream_runner import AgentStreamRunner, WorkflowStreamRunner,agent_stream_handler,workflow_stream_handler, RunOpt
 
+# 过滤掉已知的非关键警告
+warnings.filterwarnings('ignore', message='.*opening the async pool.*')
+warnings.filterwarnings('ignore', message='.*Pydantic serializer warnings.*')
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='psycopg_pool')
+
 setup_logging(
     log_file=LOG_FILE,
     max_bytes=100 * 1024 * 1024, # 100MB
@@ -29,6 +35,10 @@ setup_logging(
     use_json_format=True,
     console_output=True
 )
+
+# 禁用 cozeloop 追踪相关的错误日志（配额不足警告，不影响核心功能）
+logging.getLogger('cozeloop.internal.trace.trace').setLevel(logging.CRITICAL)
+logging.getLogger('cozeloop.internal.httpclient.http_client').setLevel(logging.CRITICAL)
 
 logger = logging.getLogger(__name__)
 from coze_coding_utils.helper.agent_helper import to_stream_input

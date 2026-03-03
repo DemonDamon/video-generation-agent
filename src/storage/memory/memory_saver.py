@@ -109,10 +109,13 @@ class MemoryManager:
 
         # 4. 尝试创建连接池和 checkpointer
         try:
+            # 使用同步方式创建连接池，避免弃用警告
+            # 注意：min_size=0 允许延迟初始化，避免在构造函数中打开连接
             self._pool = AsyncConnectionPool(
                 conninfo=db_url,
                 timeout=DB_CONNECTION_TIMEOUT,
-                min_size=1,
+                min_size=0,  # 允许延迟初始化
+                max_size=5,
                 max_idle=300,
                 check=AsyncConnectionPool.check_connection,
             )
