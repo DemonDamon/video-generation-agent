@@ -504,11 +504,13 @@ def parse_input(input_str: str) -> Dict[str, Any]:
 
 def start_http_server(port):
     workers = 1
+    # 注意：禁用 reload 功能，避免代码修改时自动重启导致正在运行的长视频生成任务丢失
+    # 如需开发调试，可以临时改为 True，但注意长时间任务会被中断
     reload = False
-    if graph_helper.is_dev_env():
-        reload = True
+    # if graph_helper.is_dev_env():
+    #     reload = True
 
-    logger.info(f"Start HTTP Server, Port: {port}, Workers: {workers}")
+    logger.info(f"Start HTTP Server, Port: {port}, Workers: {workers}, Reload: {reload}")
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=reload, workers=workers)
 
 if __name__ == "__main__":
