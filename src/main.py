@@ -22,6 +22,9 @@ from coze_coding_utils.log.config import LOG_LEVEL
 from coze_coding_utils.error.classifier import ErrorClassifier, classify_error
 from coze_coding_utils.helper.stream_runner import AgentStreamRunner, WorkflowStreamRunner,agent_stream_handler,workflow_stream_handler, RunOpt
 
+# 导入带心跳的 AgentStreamRunner
+from utils.heartbeat_stream_runner import AgentStreamRunnerWithHeartbeat
+
 # 过滤掉已知的非关键警告
 warnings.filterwarnings('ignore', message='.*opening the async pool.*')
 warnings.filterwarnings('ignore', message='.*Pydantic serializer warnings.*')
@@ -58,7 +61,8 @@ class GraphService:
         # 错误分类器
         self.error_classifier = ErrorClassifier()
         # stream runner
-        self._agent_stream_runner = AgentStreamRunner()
+        # 使用带心跳的 AgentStreamRunner，解决长时间工具执行导致的超时问题
+        self._agent_stream_runner = AgentStreamRunnerWithHeartbeat()
         self._workflow_stream_runner = WorkflowStreamRunner()
         self._graph = None
         self._graph_lock = threading.Lock()

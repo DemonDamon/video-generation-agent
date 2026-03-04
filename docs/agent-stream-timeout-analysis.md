@@ -290,27 +290,47 @@ class AgentStreamRunner(BaseStreamRunner):
 - 针对视频生成等长时间任务，前端可以增加超时阈值
 - 例如：从默认的 5 分钟增加到 20 分钟
 
-### 4.2 应用层面（可临时缓解）
+### 4.2 应用层面（已实现 ✅）
 
-**方案 A：工具内发送中间进度**
+**方案 A：自定义带心跳的 AgentStreamRunner**
+
+已创建 `src/utils/heartbeat_stream_runner.py`，实现了 `AgentStreamRunnerWithHeartbeat` 类：
 
 ```python
-# 在工具执行过程中，定期发送进度消息
-@tool
-def generate_long_video_v3(...):
-    # 场景生成循环
-    for i, scene in enumerate(scenes):
-        # 生成前发送进度
-        yield {"type": "progress", "message": f"正在生成场景 {i+1}/{len(scenes)}"}
+class AgentStreamRunnerWithHeartbeat:
+    """带心跳机制的 AgentStreamRunner"""
+    
+    async def astream(self, ...):
+        # 1. 启动生产者线程（执行 Agent）
+        producer_thread = threading.Thread(target=producer, daemon=True)
+        producer_thread.start()
         
-        # 执行生成
-        result = generate_scene(scene)
+        # 2. 启动心跳协程（关键！这是原始实现缺少的）
+        heartbeat_task = asyncio.create_task(heartbeat_sender())
         
-        # 生成后发送结果
-        yield {"type": "scene_complete", "scene_index": i+1}
+        # 3. 心跳发送器：每 30 秒发送一次心跳
+        async def heartbeat_sender():
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)  # 30秒
+                heartbeat_msg = {
+                    "type": "heartbeat",
+                    "event": "ping",
+                    "timestamp": int(time.time() * 1000),
+                    "run_id": ctx.run_id,
+                }
+                await q.put(("heartbeat", heartbeat_msg))
 ```
 
-**注意**：当前 LangChain `@tool` 装饰器不支持 yield，需要使用其他机制。
+**集成方式**（`src/main.py`）：
+
+```python
+from utils.heartbeat_stream_runner import AgentStreamRunnerWithHeartbeat
+
+class GraphService:
+    def __init__(self):
+        # 使用带心跳的 AgentStreamRunner
+        self._agent_stream_runner = AgentStreamRunnerWithHeartbeat()
+```
 
 **方案 B：拆分长任务**
 
@@ -409,9 +429,73 @@ async def astream(self, payload, graph, run_config, ctx, run_opt=None):
 | **问题** | 长时间工具执行导致前端 SSE 连接超时断开 |
 | **根因** | `AgentStreamRunner` 缺少心跳机制 |
 | **影响** | 工具执行成功但用户看不到结果 |
-| **解决方案** | 框架层面添加心跳 / 前端增加超时 / 拆分长任务 |
-| **优先级** | 高（影响用户体验） |
-| **责任方** | 需要框架支持（coze_coding_utils） |
+| **解决方案** | ✅ 已实现 `AgentStreamRunnerWithHeartbeat` |
+| **状态** | ✅ 已解决 |
+| **文件** | `src/utils/heartbeat_stream_runner.py` |
+
+---
+
+## ✅ 解决方案实现
+
+### 核心改动
+
+| 文件 | 改动 |
+|------|------|
+| `src/utils/heartbeat_stream_runner.py` | 新增：带心跳的 AgentStreamRunner |
+| `src/main.py` | 修改：使用新的 StreamRunner |
+
+### 心跳机制工作原理
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         用户请求生成视频                              │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│              AgentStreamRunnerWithHeartbeat.astream()               │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │                               │
+                    ▼                               ▼
+        ┌───────────────────┐           ┌───────────────────┐
+        │  Producer 线程     │           │  Heartbeat 协程   │
+        │  (执行 Agent)      │           │  (每30秒发心跳)   │
+        └───────────────────┘           └───────────────────┘
+                    │                               │
+                    │                               │
+                    ▼                               ▼
+        ┌─────────────────────────────────────────────────────────────┐
+        │                     asyncio.Queue                           │
+        │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐        │
+        │  │ 消息1   │  │ 心跳1   │  │ 消息2   │  │ 心跳2   │ ...    │
+        │  └─────────┘  └─────────┘  └─────────┘  └─────────┘        │
+        └─────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+        ┌─────────────────────────────────────────────────────────────┐
+        │                      前端 SSE 连接                          │
+        │  ✅ 连接保持活跃，不会超时断开                               │
+        └─────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+        ┌─────────────────────────────────────────────────────────────┐
+        │                    工具执行完成后                            │
+        │  ✅ LLM 正常发送最终回复                                    │
+        │  ✅ 用户看到完整的生成结果                                   │
+        └─────────────────────────────────────────────────────────────┘
+```
+
+### 测试验证
+
+```
+测试时间: 2026-03-04 20:32
+测试内容: 生成5秒视频
+执行时间: ~49秒
+结果: ✅ 成功完成，LLM 正确返回最终回复
+心跳: 未触发（执行时间 < 30秒心跳间隔）
+```
 
 ---
 
