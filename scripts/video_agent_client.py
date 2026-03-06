@@ -71,7 +71,10 @@ class VideoAgentClient:
         Returns:
             包含完整响应和元数据的字典
         """
-        if not self.token:
+        # 本地服务（localhost/127.0.0.1）可不传 token
+        is_local = "localhost" in self.base_url or "127.0.0.1" in self.base_url
+        token = self.token or ("local" if is_local else None)
+        if not token:
             error_msg = "未配置 token，请使用 --token 或 --token-file 指定有效令牌"
             if verbose:
                 print(f"❌ {error_msg}")
@@ -89,7 +92,7 @@ class VideoAgentClient:
         }
         
         headers = {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
         }
@@ -350,11 +353,13 @@ class VideoAgentClient:
 
     def cancel_run(self, run_id: str) -> dict:
         """取消服务端运行任务。"""
-        if not self.token:
+        is_local = "localhost" in self.base_url or "127.0.0.1" in self.base_url
+        token = self.token or ("local" if is_local else None)
+        if not token:
             return {"status": "failed", "message": "未配置 token，无法取消任务"}
 
         headers = {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
