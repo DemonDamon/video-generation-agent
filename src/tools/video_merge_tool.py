@@ -6,7 +6,9 @@
 import os
 import json
 import logging
+import shutil
 import tempfile
+import time
 import subprocess
 import requests
 from typing import List, Optional
@@ -48,8 +50,6 @@ def merge_videos(
         - error: 错误信息（如果失败）
     """
     try:
-        import time
-        
         start_time = time.time()
         
         if not video_urls or len(video_urls) == 0:
@@ -161,43 +161,57 @@ def merge_videos(
         except:
             total_duration = 0
         
-        # 上传到对象存储
-        logger.info("正在上传合并后的视频...")
+        video_url = None
+        video_key = None
+        bucket_url = os.getenv("COZE_BUCKET_ENDPOINT_URL")
+        bucket_name = os.getenv("COZE_BUCKET_NAME")
         
-        try:
-            storage = S3SyncStorage(
-                endpoint_url=os.getenv("COZE_BUCKET_ENDPOINT_URL"),
-                access_key="",
-                secret_key="",
-                bucket_name=os.getenv("COZE_BUCKET_NAME"),
-                region="cn-beijing",
-            )
-            
-            # 读取文件内容
-            with open(output_file, 'rb') as f:
-                video_content = f.read()
-            
-            # 上传
-            video_key = storage.upload_file(
-                file_content=video_content,
-                file_name=f"merged/{output_name}",
-                content_type="video/mp4"
-            )
-            
-            # 生成签名URL（有效期7天）
-            video_url = storage.generate_presigned_url(
-                key=video_key,
-                expire_time=604800  # 7天
-            )
-            
-            logger.info(f"  ✓ 视频上传完成: {video_url[:80]}...")
-            
-        except Exception as e:
-            logger.error(f"上传失败: {e}")
-            return json.dumps({
-                "error": f"视频上传失败: {str(e)}",
-                "status": "failed"
-            }, ensure_ascii=False)
+        if bucket_url and bucket_name:
+            # 上传到对象存储
+            logger.info("正在上传合并后的视频...")
+            try:
+                storage = S3SyncStorage(
+                    endpoint_url=bucket_url,
+                    access_key="",
+                    secret_key="",
+                    bucket_name=bucket_name,
+                    region="cn-beijing",
+                )
+                with open(output_file, 'rb') as f:
+                    video_content = f.read()
+                video_key = storage.upload_file(
+                    file_content=video_content,
+                    file_name=f"merged/{output_name}",
+                    content_type="video/mp4"
+                )
+                video_url = storage.generate_presigned_url(
+                    key=video_key,
+                    expire_time=604800
+                )
+                logger.info(f"  ✓ 视频上传完成: {video_url[:80]}...")
+            except Exception as e:
+                logger.error(f"上传失败: {e}")
+                return json.dumps({
+                    "error": f"视频上传失败: {str(e)}",
+                    "status": "failed"
+                }, ensure_ascii=False)
+        else:
+            # 保存到本地（无需对象存储）
+            output_dir = os.getenv("LOCAL_VIDEO_OUTPUT_DIR", "output/videos")
+            output_dir = os.path.abspath(output_dir)
+            os.makedirs(output_dir, exist_ok=True)
+            base_name = os.path.splitext(output_name)[0]
+            ext = os.path.splitext(output_name)[1] or ".mp4"
+            unique_name = f"{base_name}_{int(time.time())}{ext}"
+            dest_path = os.path.join(output_dir, unique_name)
+            shutil.copy2(output_file, dest_path)
+            logger.info(f"  ✓ 视频已保存到本地: {dest_path}")
+            base_url = os.getenv("LOCAL_VIDEO_BASE_URL", "")
+            if base_url:
+                video_url = f"{base_url.rstrip('/')}/videos/{unique_name}"
+            else:
+                video_url = f"file:///{dest_path.replace(os.sep, '/')}"
+            video_key = dest_path
         
         # 清理临时文件
         try:

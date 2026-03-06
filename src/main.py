@@ -12,8 +12,10 @@ import requests
 from typing import Any, Dict, Iterable, AsyncIterable, AsyncGenerator, Optional
 import cozeloop
 import uvicorn
+import os as _os
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
@@ -548,6 +550,13 @@ class GraphService:
 
 service = GraphService()
 app = FastAPI()
+
+# 本地视频输出目录（当未配置对象存储时，视频保存到此目录，可通过 /videos/ 访问）
+_video_output_dir = _os.getenv("LOCAL_VIDEO_OUTPUT_DIR", "output/videos")
+_video_output_abs = _os.path.abspath(_video_output_dir)
+_os.makedirs(_video_output_abs, exist_ok=True)
+app.mount("/videos", StaticFiles(directory=_video_output_abs), name="videos")
+logger.info(f"Static videos mounted at /videos -> {_video_output_abs}")
 
 # OpenAI 兼容接口处理器
 openai_handler = OpenAIChatHandler(service)
