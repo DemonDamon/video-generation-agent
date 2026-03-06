@@ -108,23 +108,32 @@ sudo apt-get install ffmpeg
 
 ### 本地运行
 
+**在 Coze 平台部署（消耗平台积分）：**
 ```bash
-# 启动 HTTP 服务
-bash scripts/http_run.sh -m http -p 5000
+bash scripts/http_run.sh -p 5000
+```
 
-# 服务将在 http://localhost:5000 启动
+**在本地运行（不消耗 Coze 积分，使用自己的 API Key）：**  
+当平台积分不足时，可本地启动服务，详见 [本地运行指南](docs/LOCAL_RUN.md)。
+
+```bash
+# 1. 配置环境变量（见 .env.example）
+# 2. 启动服务
+python src/main.py -m http -p 5000
+# 或: bash scripts/local_http_run.sh 5000
 ```
 
 ### 使用客户端
 
 ```bash
-# 交互模式
+# 连接 Coze 平台服务
 python scripts/video_agent_client.py --token "YOUR_TOKEN"
 
+# 连接本地服务（无需 token 或填 local）
+python scripts/video_agent_client.py --url http://localhost:5000
+
 # 单次消息
-python scripts/video_agent_client.py \
-  --token "YOUR_TOKEN" \
-  --message "帮我生成一个小猫玩球的视频"
+python scripts/video_agent_client.py --url http://localhost:5000 --message "帮我生成一个小猫玩球的视频"
 ```
 
 ---
