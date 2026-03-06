@@ -118,6 +118,7 @@ def generate_long_video(
             return_last_frame = not is_last_scene
             
             video_model = _get_video_model()
+            # 增加单个视频生成的超时时间到 1200 秒（20分钟）
             video_url, response, current_last_frame = client.video_generation(
                 content_items=content_items,
                 model=video_model,
@@ -125,7 +126,8 @@ def generate_long_video(
                 ratio=ratio,
                 duration=duration,
                 watermark=watermark,
-                return_last_frame=return_last_frame
+                return_last_frame=return_last_frame,
+                max_wait_time=1200  # 单个视频最长等待 20 分钟
             )
             
             # 检查生成结果
@@ -233,13 +235,15 @@ def generate_single_video(
         
         # 生成视频
         video_model = _get_video_model()
+        # 增加单个视频生成的超时时间到 1200 秒（20分钟）
         video_url, response, _ = client.video_generation(
             content_items=content_items,
             model=video_model,
             resolution=resolution,
             ratio=ratio,
             duration=duration,
-            watermark=watermark
+            watermark=watermark,
+            max_wait_time=1200  # 单个视频最长等待 20 分钟
         )
         
         if not video_url:

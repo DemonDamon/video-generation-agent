@@ -208,6 +208,7 @@ def generate_long_video_v3(
             
             try:
                 video_model = _get_video_model()
+                # 增加单个视频生成的超时时间到 1200 秒（20分钟）
                 video_url, response, current_last_frame = client.video_generation(
                     content_items=content_items,
                     model=video_model,
@@ -215,7 +216,8 @@ def generate_long_video_v3(
                     ratio=ratio,
                     duration=duration,
                     watermark=watermark,
-                    return_last_frame=return_last_frame
+                    return_last_frame=return_last_frame,
+                    max_wait_time=1200  # 单个视频最长等待 20 分钟
                 )
                 
                 scene_end_time = time.time()

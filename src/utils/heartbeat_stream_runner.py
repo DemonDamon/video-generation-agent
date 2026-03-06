@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 
 # 心跳间隔（秒）
 HEARTBEAT_INTERVAL_SECONDS = 30
-# 总超时时间（秒）
-TIMEOUT_SECONDS = 900
+# 总超时时间（秒）- 与 main.py 保持一致
+TIMEOUT_SECONDS = 3600  # 1小时
 
 
 class AgentStreamRunnerWithHeartbeat:
