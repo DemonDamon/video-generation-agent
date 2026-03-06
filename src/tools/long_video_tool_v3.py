@@ -25,6 +25,23 @@ from coze_coding_utils.runtime_ctx.context import new_context
 logger = logging.getLogger(__name__)
 
 
+def _get_video_model() -> str:
+    """从配置文件读取视频生成模型名称"""
+    workspace_path = os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects")
+    config_path = os.path.join(workspace_path, "config/agent_llm_config.json")
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            video_model = config.get("video_model", {})
+            model = video_model.get("model", "doubao-seedance-2-0-260128")
+            logger.info(f"使用视频生成模型: {model}")
+            return model
+    except Exception as e:
+        logger.warning(f"读取配置文件失败，使用默认模型: {e}")
+        return "doubao-seedance-2-0-260128"
+
+
 # 场景描述优化模板
 SCENE_DESCRIPTION_TEMPLATE = """
 [场景 {index}/{total}]
@@ -176,9 +193,10 @@ def generate_long_video_v3(
             return_last_frame = not is_last_scene
             
             try:
+                video_model = _get_video_model()
                 video_url, response, current_last_frame = client.video_generation(
                     content_items=content_items,
-                    model="doubao-seedance-2-0-260128",
+                    model=video_model,
                     resolution=resolution,
                     ratio=ratio,
                     duration=duration,
