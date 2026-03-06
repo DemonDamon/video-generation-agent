@@ -5,10 +5,13 @@ import threading
 import traceback
 import logging
 import warnings
+import time
+import uuid
+import re
+import requests
 from typing import Any, Dict, Iterable, AsyncIterable, AsyncGenerator, Optional
 import cozeloop
 import uvicorn
-import time
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from langchain_core.runnables import RunnableConfig
@@ -58,6 +61,8 @@ class GraphService:
     def __init__(self):
         # 用于跟踪正在运行的任务（使用asyncio.Task）
         self.running_tasks: Dict[str, asyncio.Task] = {}
+        # 后台任务状态（task_id 维度）
+        self.background_tasks: Dict[str, Dict[str, Any]] = {}
         # 错误分类器
         self.error_classifier = ErrorClassifier()
         # stream runner
@@ -66,6 +71,300 @@ class GraphService:
         self._workflow_stream_runner = WorkflowStreamRunner()
         self._graph = None
         self._graph_lock = threading.Lock()
+        self._task_lock = threading.Lock()
+
+    @staticmethod
+    def _extract_progress_hint(text: str) -> str:
+        if not text:
+            return ""
+        patterns = [
+            r"进度[:：]\s*\d+%",
+            r"场景\s*\d+\s*/\s*\d+",
+            r"第\s*\d+\s*批次",
+            r"正在生成[^。\n]*",
+            r"预计[^。\n]*分钟",
+        ]
+        for p in patterns:
+            m = re.search(p, text)
+            if m:
+                return m.group(0)
+        return ""
+
+    def _update_task_state(self, task_id: str, patch: Dict[str, Any]):
+        with self._task_lock:
+            task = self.background_tasks.get(task_id)
+            if not task:
+                return
+            task.update(patch)
+            task["updated_at"] = time.time()
+
+    async def _post_callback(self, task_id: str):
+        with self._task_lock:
+            task = self.background_tasks.get(task_id)
+            if not task:
+                return
+            callback_url = task.get("callback_url")
+            callback_headers = task.get("callback_headers") or {}
+            callback_payload = {
+                "task_id": task_id,
+                "run_id": task.get("run_id"),
+                "status": task.get("status"),
+                "progress": task.get("progress"),
+                "last_update": task.get("last_update"),
+                "error": task.get("error"),
+                "result": task.get("result"),
+                "created_at": task.get("created_at"),
+                "started_at": task.get("started_at"),
+                "ended_at": task.get("ended_at"),
+            }
+
+        if not callback_url:
+            return
+
+        def _send():
+            try:
+                requests.post(
+                    callback_url,
+                    json=callback_payload,
+                    headers=callback_headers,
+                    timeout=30,
+                )
+            except Exception as e:
+                logger.error(f"Callback failed for task_id={task_id}: {e}")
+
+        await asyncio.to_thread(_send)
+
+    async def _run_background_task(
+        self,
+        task_id: str,
+        payload: Dict[str, Any],
+        headers: Dict[str, str],
+        workflow_debug: bool = False,
+    ):
+        ctx = new_context(method="task_background_run", headers=headers)
+        request_context.set(ctx)
+        run_id = ctx.run_id
+        started_at = time.time()
+        self._update_task_state(task_id, {
+            "status": "running",
+            "run_id": run_id,
+            "started_at": started_at,
+            "last_update": "任务已启动",
+        })
+
+        graph = self._get_graph(ctx)
+        if graph_helper.is_agent_proj():
+            run_config = init_agent_config(graph, ctx)
+        else:
+            run_config = init_run_config(graph, ctx)
+
+        run_opt = RunOpt(workflow_debug=workflow_debug)
+        result = {
+            "answer": "",
+            "videos": [],
+            "error": None,
+            "finish": False,
+            "raw_messages": [],
+            "run_id": run_id,
+        }
+        last_tool = ""
+
+        try:
+            # 注册运行中的 run_id，便于 /cancel 复用
+            current_task = asyncio.current_task()
+            if current_task:
+                self.running_tasks[run_id] = current_task
+
+            async for chunk in self.astream(payload, graph, run_config=run_config, ctx=ctx, run_opt=run_opt):
+                if isinstance(chunk, tuple) and len(chunk) == 2 and isinstance(chunk[1], dict):
+                    chunk = chunk[1]
+                if not isinstance(chunk, dict):
+                    continue
+
+                result["raw_messages"].append(chunk)
+                msg_type = chunk.get("type")
+                content = chunk.get("content", {})
+                if chunk.get("run_id"):
+                    result["run_id"] = chunk["run_id"]
+                    run_id = chunk["run_id"]
+                    self._update_task_state(task_id, {"run_id": run_id})
+
+                if msg_type == "answer":
+                    answer_part = content.get("answer", "") if isinstance(content, dict) else ""
+                    if answer_part:
+                        result["answer"] += answer_part
+                        hint = self._extract_progress_hint(answer_part)
+                        if hint:
+                            self._update_task_state(task_id, {
+                                "progress": hint,
+                                "last_update": hint,
+                            })
+                elif msg_type == "tool_request":
+                    tool_req = content.get("tool_request", {}) if isinstance(content, dict) else {}
+                    if isinstance(tool_req, dict):
+                        last_tool = tool_req.get("name") or tool_req.get("tool_name") or last_tool
+                    update_text = f"调用工具: {last_tool}" if last_tool else "工具调用中"
+                    self._update_task_state(task_id, {
+                        "last_tool": last_tool,
+                        "last_update": update_text,
+                    })
+                elif msg_type == "tool_response":
+                    tool_resp = content.get("tool_response", {}) if isinstance(content, dict) else {}
+                    tool_content = tool_resp.get("content", "")
+                    try:
+                        data = json.loads(tool_content) if isinstance(tool_content, str) else tool_content
+                        if isinstance(data, dict):
+                            video_url = data.get("video_url")
+                            if video_url and video_url not in result["videos"]:
+                                result["videos"].append(video_url)
+                            video_urls = data.get("video_urls") or []
+                            if isinstance(video_urls, list):
+                                for u in video_urls:
+                                    if u and u not in result["videos"]:
+                                        result["videos"].append(u)
+                            if data.get("progress") is not None:
+                                self._update_task_state(task_id, {
+                                    "progress": data.get("progress"),
+                                    "last_update": f"进度: {data.get('progress')}",
+                                })
+                    except Exception:
+                        pass
+                elif msg_type == "message_end":
+                    result["finish"] = True
+                elif msg_type == "error":
+                    err = content.get("error", {}) if isinstance(content, dict) else content
+                    result["error"] = err
+                    self._update_task_state(task_id, {
+                        "last_update": "任务执行错误",
+                        "error": err if isinstance(err, str) else json.dumps(err, ensure_ascii=False),
+                    })
+                elif msg_type == "heartbeat":
+                    if not result["finish"]:
+                        self._update_task_state(task_id, {
+                            "last_update": "任务执行中（心跳）",
+                        })
+
+            end_time = time.time()
+            if result.get("error"):
+                self._update_task_state(task_id, {
+                    "status": "failed",
+                    "ended_at": end_time,
+                    "result": result,
+                    "progress": "failed",
+                })
+            else:
+                self._update_task_state(task_id, {
+                    "status": "success",
+                    "ended_at": end_time,
+                    "result": result,
+                    "progress": "100%",
+                    "last_update": "任务完成",
+                })
+
+        except asyncio.CancelledError:
+            self._update_task_state(task_id, {
+                "status": "cancelled",
+                "ended_at": time.time(),
+                "progress": "cancelled",
+                "last_update": "任务已取消",
+            })
+            raise
+        except Exception as e:
+            self._update_task_state(task_id, {
+                "status": "failed",
+                "ended_at": time.time(),
+                "progress": "failed",
+                "error": str(e),
+                "last_update": "任务异常失败",
+            })
+            logger.error(f"Background task failed task_id={task_id}: {e}", exc_info=True)
+        finally:
+            self.running_tasks.pop(run_id, None)
+            await self._post_callback(task_id)
+
+    async def submit_background_task(
+        self,
+        payload: Dict[str, Any],
+        headers: Dict[str, str],
+        callback_url: Optional[str] = None,
+        callback_headers: Optional[Dict[str, str]] = None,
+        workflow_debug: bool = False,
+    ) -> Dict[str, Any]:
+        task_id = f"task-{uuid.uuid4().hex[:12]}"
+        now = time.time()
+        task_record = {
+            "task_id": task_id,
+            "run_id": None,
+            "status": "queued",
+            "progress": "queued",
+            "last_update": "任务已入队",
+            "last_tool": "",
+            "error": None,
+            "result": None,
+            "created_at": now,
+            "updated_at": now,
+            "started_at": None,
+            "ended_at": None,
+            "callback_url": callback_url,
+            "callback_headers": callback_headers or {},
+        }
+        with self._task_lock:
+            self.background_tasks[task_id] = task_record
+
+        job = asyncio.create_task(
+            self._run_background_task(
+                task_id=task_id,
+                payload=payload,
+                headers=headers,
+                workflow_debug=workflow_debug,
+            )
+        )
+        with self._task_lock:
+            self.background_tasks[task_id]["asyncio_task"] = job
+
+        return {
+            "task_id": task_id,
+            "status": "queued",
+            "message": "任务已提交，可通过 /task/status/{task_id} 查询进度",
+        }
+
+    def get_background_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+        with self._task_lock:
+            task = self.background_tasks.get(task_id)
+            if not task:
+                return None
+            safe = dict(task)
+            safe.pop("asyncio_task", None)
+            safe.pop("callback_headers", None)
+            return safe
+
+    def cancel_background_task(self, task_id: str) -> Dict[str, Any]:
+        with self._task_lock:
+            task = self.background_tasks.get(task_id)
+            if not task:
+                return {"status": "not_found", "task_id": task_id, "message": "任务不存在"}
+            run_id = task.get("run_id")
+            raw_asyncio_task = task.get("asyncio_task")
+            status = task.get("status")
+
+        if status in {"success", "failed", "cancelled"}:
+            return {"status": "not_running", "task_id": task_id, "message": f"任务已结束: {status}"}
+
+        cancel_result = {"status": "pending", "task_id": task_id, "message": "已请求取消"}
+        if run_id:
+            cancel_result = self.cancel_run(run_id)
+            cancel_result["task_id"] = task_id
+
+        if raw_asyncio_task and not raw_asyncio_task.done():
+            raw_asyncio_task.cancel()
+
+        self._update_task_state(task_id, {
+            "status": "cancelled",
+            "ended_at": time.time(),
+            "progress": "cancelled",
+            "last_update": "任务已取消",
+        })
+        return cancel_result
 
     def _get_graph(self, ctx=Context):
         if graph_helper.is_agent_proj():
@@ -403,6 +702,83 @@ async def http_cancel(run_id: str, request: Request):
     request_context.set(ctx)
     logger.info(f"Received cancel request for run_id: {run_id}")
     result = service.cancel_run(run_id, ctx)
+    return result
+
+
+@app.post("/task/submit")
+async def http_task_submit(request: Request):
+    """
+    提交后台异步任务（非阻塞）。
+
+    请求体格式：
+    {
+      "payload": {...},                # 必填，和 /stream_run 的请求体一致
+      "callback_url": "https://...",   # 可选，任务结束后回调
+      "callback_headers": {...},       # 可选，回调时附带的请求头
+      "workflow_debug": false          # 可选，workflow 调试模式
+    }
+    """
+    ctx = new_context(method="task_submit", headers=request.headers)
+    request_context.set(ctx)
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
+
+    payload = body.get("payload")
+    callback_url = body.get("callback_url")
+    callback_headers = body.get("callback_headers") or {}
+    workflow_debug = bool(body.get("workflow_debug", False))
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="'payload' is required and must be an object")
+    if callback_url is not None and not isinstance(callback_url, str):
+        raise HTTPException(status_code=400, detail="'callback_url' must be a string")
+    if not isinstance(callback_headers, dict):
+        raise HTTPException(status_code=400, detail="'callback_headers' must be an object")
+
+    headers = dict(request.headers)
+    result = await service.submit_background_task(
+        payload=payload,
+        headers=headers,
+        callback_url=callback_url,
+        callback_headers=callback_headers,
+        workflow_debug=workflow_debug,
+    )
+    return result
+
+
+@app.get("/task/status/{task_id}")
+async def http_task_status(task_id: str):
+    """查询后台任务状态。"""
+    status = service.get_background_task_status(task_id)
+    if not status:
+        raise HTTPException(status_code=404, detail=f"task_id '{task_id}' not found")
+    return status
+
+
+@app.get("/task/result/{task_id}")
+async def http_task_result(task_id: str):
+    """查询后台任务结果（仅任务结束后可拿到完整结果）。"""
+    status = service.get_background_task_status(task_id)
+    if not status:
+        raise HTTPException(status_code=404, detail=f"task_id '{task_id}' not found")
+    return {
+        "task_id": task_id,
+        "status": status.get("status"),
+        "run_id": status.get("run_id"),
+        "error": status.get("error"),
+        "result": status.get("result"),
+    }
+
+
+@app.post("/task/cancel/{task_id}")
+async def http_task_cancel(task_id: str):
+    """按 task_id 取消后台任务。"""
+    result = service.cancel_background_task(task_id)
+    if result.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail=result.get("message", "task not found"))
     return result
 
 
