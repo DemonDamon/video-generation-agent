@@ -251,8 +251,9 @@ def generate_long_video_v3(
                 # 成功生成
                 logger.info(f"  ✅ 场景 {i+1} 生成成功！耗时: {scene_duration}秒")
                 
-                # 输出进度信息（用户可见）
+                # 输出进度信息（用户可见）- 包含真实视频链接
                 print(f"✅ 【场景 {i+1}/{len(scenes)}】生成完成！耗时: {scene_duration} 秒")
+                print(f"   视频链接: [VIDEO_URL]{video_url}[/VIDEO_URL]")
                 if i < len(scenes) - 1:
                     print(f"   → 准备生成下一个场景...\n")
                 else:
@@ -332,23 +333,27 @@ def generate_long_video_v3(
         """)
         
         # 输出最终结果（用户可见）
-        print(f"{'='*50}")
+        # 使用特殊标记，确保模型直接复制链接而不是生成假链接
+        print(f"{'='*60}")
         print(f"🎉 长视频生成完成！")
-        print(f"{'='*50}")
+        print(f"{'='*60}")
         print(f"📊 统计信息:")
         print(f"   • 场景数量: {len(scenes)} 个")
         print(f"   • 视频时长: {total_duration} 秒")
         print(f"   • 总耗时: {total_time} 秒")
         print(f"   • 分辨率: {resolution}")
         print(f"   • 自动拼接: {'✅ 已完成' if merged_video_url else '⚠️ 未执行'}")
+        
+        # 使用 [VIDEO_URL] 标记，让模型直接复制
         if merged_video_url:
-            print(f"\n🎬 完整视频链接:")
-            print(f"   {merged_video_url}")
+            print(f"\n🎬 完整视频链接（直接复制以下链接）:")
+            print(f"[VIDEO_URL]{merged_video_url}[/VIDEO_URL]")
         else:
-            print(f"\n🎬 视频片段链接:")
+            print(f"\n🎬 视频片段链接（直接复制以下链接）:")
             for idx, url in enumerate(video_urls, 1):
-                print(f"   {idx}. {url}")
-        print(f"{'='*50}\n")
+                print(f"片段{idx}: [VIDEO_URL]{url}[/VIDEO_URL]")
+        print(f"{'='*60}")
+        print(f"\n⚠️ 重要：以上链接是工具返回的真实链接，请直接复制使用，不要修改或重新生成！\n")
         
         # 构建返回结果
         result = {

@@ -262,6 +262,13 @@ def generate_single_video(
         
         logger.info("视频生成成功")
         
+        # 输出带标记的真实链接，确保模型直接复制
+        print(f"\n✅ 视频生成成功！")
+        print(f"   时长: {duration} 秒")
+        print(f"   分辨率: {resolution}")
+        print(f"   视频链接: [VIDEO_URL]{video_url}[/VIDEO_URL]")
+        print(f"\n⚠️ 请直接复制以上链接，不要修改！\n")
+        
         return json.dumps(result, ensure_ascii=False)
         
     except Exception as e:
