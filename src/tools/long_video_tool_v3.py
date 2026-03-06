@@ -42,6 +42,20 @@ def _get_video_model() -> str:
         return "doubao-seedance-2-0-260128"
 
 
+def _get_video_output_dir() -> str:
+    """获取视频输出目录，在 FaaS 环境中使用 /tmp"""
+    # 优先使用环境变量
+    env_dir = os.getenv("LOCAL_VIDEO_OUTPUT_DIR")
+    if env_dir:
+        return env_dir
+    
+    # 检测是否在 FaaS 环境（/opt/bytefaas 存在且只读）
+    if os.path.exists("/opt/bytefaas"):
+        return "/tmp/output/videos"
+    
+    return "output/videos"
+
+
 # 场景描述优化模板
 SCENE_DESCRIPTION_TEMPLATE = """
 [场景 {index}/{total}]
@@ -473,9 +487,15 @@ def _merge_video_segments(
                 return {"error": f"视频上传失败: {str(e)}", "status": "failed"}
         else:
             # 保存到本地目录（无需对象存储）
-            output_dir = os.getenv("LOCAL_VIDEO_OUTPUT_DIR", "output/videos")
+            output_dir = _get_video_output_dir()
             output_dir = os.path.abspath(output_dir)
-            os.makedirs(output_dir, exist_ok=True)
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except OSError as e:
+                # 如果无法创建目录，尝试使用 /tmp
+                logger.warning(f"无法创建输出目录 {output_dir}: {e}，使用 /tmp")
+                output_dir = "/tmp/output/videos"
+                os.makedirs(output_dir, exist_ok=True)
             base_name = os.path.splitext(output_name)[0]
             ext = os.path.splitext(output_name)[1] or ".mp4"
             unique_name = f"{base_name}_{int(time.time())}{ext}"

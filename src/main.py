@@ -552,11 +552,20 @@ service = GraphService()
 app = FastAPI()
 
 # 本地视频输出目录（当未配置对象存储时，视频保存到此目录，可通过 /videos/ 访问）
-_video_output_dir = _os.getenv("LOCAL_VIDEO_OUTPUT_DIR", "output/videos")
+# 在 FaaS 部署环境中，使用 /tmp 目录（因为 /opt/bytefaas 是只读的）
+# 检测方式：/opt/bytefaas 目录存在
+_default_video_output = "/tmp/output/videos" if _os.path.exists("/opt/bytefaas") else "output/videos"
+_video_output_dir = _os.getenv("LOCAL_VIDEO_OUTPUT_DIR", _default_video_output)
 _video_output_abs = _os.path.abspath(_video_output_dir)
-_os.makedirs(_video_output_abs, exist_ok=True)
-app.mount("/videos", StaticFiles(directory=_video_output_abs), name="videos")
-logger.info(f"Static videos mounted at /videos -> {_video_output_abs}")
+
+# 确保目录存在（仅在可写文件系统上创建）
+try:
+    _os.makedirs(_video_output_abs, exist_ok=True)
+    app.mount("/videos", StaticFiles(directory=_video_output_abs), name="videos")
+    logger.info(f"Static videos mounted at /videos -> {_video_output_abs}")
+except OSError as e:
+    logger.warning(f"Cannot create video output directory {_video_output_abs}: {e}")
+    logger.info("Video output will use object storage only")
 
 # OpenAI 兼容接口处理器
 openai_handler = OpenAIChatHandler(service)
