@@ -176,10 +176,15 @@ def generate_long_video_v3(
         
         # ===== 第一阶段：生成所有场景 =====
         logger.info("\n【阶段 1/2】生成视频片段...")
+        print(f"\n🎬 开始生成视频，共 {len(scenes)} 个场景...\n")
         
         for i, scene in enumerate(scenes):
             scene_start_time = time.time()
             progress = int((i / len(scenes)) * 80)  # 前80%用于生成
+            
+            # 输出进度信息（用户可见）
+            print(f"📍 【场景 {i+1}/{len(scenes)}】正在生成中... (总进度: {progress}%)")
+            print(f"   描述: {scene[:60]}{'...' if len(scene) > 60 else ''}\n")
             
             logger.info(f"""
 ┌──────────────────────────────────────────────────────────────┐
@@ -226,10 +231,12 @@ def generate_long_video_v3(
                 if not video_url:
                     error_msg = f"场景 {i+1} 生成失败"
                     logger.error(f"  ❌ {error_msg}")
+                    print(f"\n❌ 【场景 {i+1}/{len(scenes)}】生成失败")
                     
                     # 返回部分结果（如有已生成的片段）
                     if video_urls:
                         logger.info(f"  ⚠️ 已有 {len(video_urls)} 个片段生成成功")
+                        print(f"   已完成 {len(video_urls)} 个场景，正在返回部分结果...\n")
                     
                     return json.dumps({
                         "error": error_msg,
@@ -243,6 +250,13 @@ def generate_long_video_v3(
                 
                 # 成功生成
                 logger.info(f"  ✅ 场景 {i+1} 生成成功！耗时: {scene_duration}秒")
+                
+                # 输出进度信息（用户可见）
+                print(f"✅ 【场景 {i+1}/{len(scenes)}】生成完成！耗时: {scene_duration} 秒")
+                if i < len(scenes) - 1:
+                    print(f"   → 准备生成下一个场景...\n")
+                else:
+                    print(f"   → 所有场景生成完成，准备拼接...\n")
                 
                 # 保存结果
                 video_urls.append(video_url)
@@ -261,6 +275,9 @@ def generate_long_video_v3(
                 
             except Exception as e:
                 logger.error(f"  ❌ 场景 {i+1} 生成异常: {str(e)}")
+                print(f"\n❌ 【场景 {i+1}/{len(scenes)}】生成失败: {str(e)}")
+                if video_urls:
+                    print(f"   已完成 {len(video_urls)} 个场景，正在返回部分结果...\n")
                 return json.dumps({
                     "error": f"场景 {i+1} 生成异常: {str(e)}",
                     "status": "failed",
@@ -277,6 +294,7 @@ def generate_long_video_v3(
         
         if auto_merge and len(video_urls) > 0:
             logger.info(f"\n【阶段 2/2】自动拼接 {len(video_urls)} 个视频片段...")
+            print(f"\n🔄 开始拼接 {len(video_urls)} 个视频片段...")
             
             merge_result = _merge_video_segments(
                 video_urls=video_urls,
@@ -290,8 +308,10 @@ def generate_long_video_v3(
                     "processing_time": merge_result.get("processing_time")
                 }
                 logger.info(f"  ✅ 视频拼接完成！总时长: {merge_result.get('duration')}秒")
+                print(f"✅ 视频拼接完成！总时长: {merge_result.get('duration')} 秒\n")
             else:
                 logger.warning(f"  ⚠️ 视频拼接失败: {merge_result.get('error')}")
+                print(f"⚠️ 视频拼接失败: {merge_result.get('error')}\n")
                 # 拼接失败不影响整体，返回片段列表
         
         # 计算总耗时
@@ -310,6 +330,25 @@ def generate_long_video_v3(
 ║  最终画质: {resolution}
 ╚══════════════════════════════════════════════════════════════╝
         """)
+        
+        # 输出最终结果（用户可见）
+        print(f"{'='*50}")
+        print(f"🎉 长视频生成完成！")
+        print(f"{'='*50}")
+        print(f"📊 统计信息:")
+        print(f"   • 场景数量: {len(scenes)} 个")
+        print(f"   • 视频时长: {total_duration} 秒")
+        print(f"   • 总耗时: {total_time} 秒")
+        print(f"   • 分辨率: {resolution}")
+        print(f"   • 自动拼接: {'✅ 已完成' if merged_video_url else '⚠️ 未执行'}")
+        if merged_video_url:
+            print(f"\n🎬 完整视频链接:")
+            print(f"   {merged_video_url}")
+        else:
+            print(f"\n🎬 视频片段链接:")
+            for idx, url in enumerate(video_urls, 1):
+                print(f"   {idx}. {url}")
+        print(f"{'='*50}\n")
         
         # 构建返回结果
         result = {
