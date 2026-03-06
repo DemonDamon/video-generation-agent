@@ -47,6 +47,8 @@ setup_logging(
 # 禁用 cozeloop 追踪相关的错误日志（配额不足警告，不影响核心功能）
 logging.getLogger('cozeloop.internal.trace.trace').setLevel(logging.CRITICAL)
 logging.getLogger('cozeloop.internal.httpclient.http_client').setLevel(logging.CRITICAL)
+# 禁用 cozeloop span 字段截断警告（description 太长被截断，不影响核心功能）
+logging.getLogger('cozeloop.internal.trace.span').setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
 from coze_coding_utils.helper.agent_helper import to_stream_input
