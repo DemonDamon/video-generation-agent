@@ -29,10 +29,10 @@ def _get_video_model() -> str:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
             video_model = config.get("video_model", {})
-            return video_model.get("model", "doubao-seedance-2-0-260128")
+            return video_model.get("model", "doubao-seedance-1-5-pro-251215")
     except Exception as e:
         logger.warning(f"读取配置文件失败，使用默认模型: {e}")
-        return "doubao-seedance-2-0-260128"
+        return "doubao-seedance-1-5-pro-251215"
 
 
 @tool
