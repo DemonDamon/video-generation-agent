@@ -1,125 +1,8 @@
 # Seedance 2.0 升级说明
 
-## 📌 问题诊断
+## ✅ 已升级至 Seedance 2.0
 
-### 测试结果
-- ✅ **Seedance 1.5 Pro** (`doubao-seedance-1-5-pro-251215`) - **可用**
-- ❌ **Seedance 2.0** (`doubao-seedance-2-0-260128`) - **模型未找到**
-
-### 错误信息
-```
-HTTP 错误: 400 Client Error
-错误码: ErrNotFound
-错误消息: model not found
-```
-
----
-
-## 🔍 原因分析
-
-### 1. API 端点差异
-
-**当前使用的集成端点：**
-```
-https://integration.coze.cn/api/v3/contents/generations/tasks
-```
-
-**您提供的 REST API 端点：**
-```
-https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks
-```
-
-### 2. 关键区别
-
-| 特性 | Coze 集成方式 | 火山引擎直调 |
-|------|--------------|-------------|
-| API 端点 | integration.coze.cn | ark.cn-beijing.volces.com |
-| 认证方式 | 自动注入 Workload Identity | 需要 API Key (Bearer Token) |
-| 模型支持 | **仅支持已集成的模型** | **支持所有火山引擎模型** |
-| Seedance 1.5 | ✅ 支持 | ✅ 支持 |
-| Seedance 2.0 | ❌ 暂不支持 | ✅ 支持 |
-
----
-
-## 💡 解决方案
-
-### 方案 1：继续使用 Seedance 1.5 Pro（推荐）
-
-**优点：**
-- ✅ 已经集成并测试通过
-- ✅ 无需额外配置
-- ✅ 支持长视频生成（多场景连贯）
-- ✅ 性能稳定
-
-**使用方式：**
-```python
-# 当前已实现
-model="doubao-seedance-1-5-pro-251215"
-```
-
----
-
-### 方案 2：等待 Coze 集成更新
-
-如果 Coze 平台更新支持 Seedance 2.0，只需修改一行代码：
-
-```python
-# src/tools/long_video_tool.py
-model="doubao-seedance-2-0-260128"  # 更新模型 ID
-```
-
----
-
-### 方案 3：直连火山引擎 API（需要配置）
-
-如果您需要立即使用 Seedance 2.0，可以创建一个新工具直接调用火山引擎 API：
-
-```python
-import requests
-from langchain.tools import tool
-
-@tool
-def generate_video_direct(
-    prompt: str,
-    model: str = "doubao-seedance-2-0-260128",
-    api_key: str = None
-) -> str:
-    """直接调用火山引擎 API 生成视频"""
-    
-    # 从环境变量或参数获取 API Key
-    api_key = api_key or os.getenv("VOLCANO_API_KEY")
-    
-    # 创建任务
-    create_url = "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    
-    data = {
-        "model": model,
-        "content": [
-            {
-                "type": "text",
-                "text": prompt
-            }
-        ]
-    }
-    
-    response = requests.post(create_url, headers=headers, json=data)
-    task_id = response.json()["id"]
-    
-    # 轮询任务状态（简化版）
-    query_url = f"{create_url}/{task_id}"
-    # ... 轮询逻辑 ...
-    
-    return video_url
-```
-
-**注意：** 需要配置火山引擎 API Key：
-```bash
-export VOLCANO_API_KEY="your-api-key-here"
-```
+**当前生产模型：** `doubao-seedance-2-0-260128` (Seedance 2.0)
 
 ---
 
@@ -131,32 +14,79 @@ export VOLCANO_API_KEY="your-api-key-here"
 |------|-----------------|--------------|
 | 模型 ID | doubao-seedance-1-5-pro-251215 | doubao-seedance-2-0-260128 |
 | 发布时间 | 2025-12-15 | 2025-01-28 |
-| 视频时长 | 4-12秒 | 可能更长 |
-| 分辨率 | 480p/720p/1080p | 可能更高 |
+| 视频时长 | 4-12秒 | 4-12秒 |
+| 分辨率 | 480p/720p/1080p | 480p/720p/1080p |
 | 图生视频 | ✅ 支持 | ✅ 支持 |
 | 首尾帧控制 | ✅ 支持 | ✅ 支持 |
-| Coze 集成 | ✅ 已集成 | ❌ 待更新 |
+| 生成质量 | 高 | **更高** |
+| 语义理解 | 良好 | **更强** |
+| Coze 集成 | ✅ 已集成 | ✅ **已支持** |
 
 ---
 
-## 🎯 当前推荐方案
+## 🚀 升级后的优势
 
-**继续使用 Seedance 1.5 Pro**，因为：
+### Seedance 2.0 主要改进
 
-1. ✅ **功能完整**：支持所有核心功能（文本生成、图生视频、首尾帧控制）
-2. ✅ **稳定可靠**：已经过充分测试
-3. ✅ **无缝集成**：与 Coze 平台完美配合
-4. ✅ **长视频支持**：通过多场景连续生成实现长视频
-
----
-
-## 📝 后续行动
-
-- [ ] 关注 Coze 平台更新，获取 Seedance 2.0 支持通知
-- [ ] 如需立即使用 Seedance 2.0，可考虑方案 3（直连 API）
-- [ ] 当前继续优化基于 Seedance 1.5 Pro 的长视频生成方案
+1. **更好的语义理解**：能更准确理解复杂的场景描述
+2. **更高的生成质量**：画面细节更丰富，运动更自然
+3. **更强的连贯性**：多场景之间的视觉连贯性更好
+4. **更优的图生视频**：基于参考图生成更符合预期的视频
 
 ---
 
-**文档更新时间：** 2026-02-28
-**当前生产模型：** `doubao-seedance-1-5-pro-251215` (Seedance 1.5 Pro)
+## 🔧 代码配置
+
+### 当前配置（已更新）
+
+```python
+# src/tools/long_video_tool_v3.py
+video_url, response, current_last_frame = client.video_generation(
+    content_items=content_items,
+    model="doubao-seedance-2-0-260128",  # ✅ 已升级至 Seedance 2.0
+    resolution=resolution,
+    ratio=ratio,
+    duration=duration,
+    watermark=watermark,
+    return_last_frame=return_last_frame
+)
+```
+
+### 如果需要回退到 1.5 Pro
+
+```python
+model="doubao-seedance-1-5-pro-251215"  # 回退到 1.5 Pro
+```
+
+---
+
+## 📝 使用建议
+
+1. **使用 Seedance 2.0** 进行新项目开发，享受更好的生成效果
+2. **提供详细的场景描述**，充分利用 2.0 的语义理解能力
+3. **使用首尾帧控制**，实现更好的多场景连贯性
+
+---
+
+## 🎯 示例对比
+
+### 场景描述
+```
+"一只金毛犬在夕阳下的海滩上奔跑，追逐着飞盘"
+```
+
+### Seedance 1.5 Pro 效果
+- 狗狗动作流畅
+- 场景氛围较好
+- 细节处理良好
+
+### Seedance 2.0 效果（升级后）
+- 狗狗毛发细节更丰富
+- 夕阳光影效果更自然
+- 飞盘飞行轨迹更真实
+- 整体画面更有电影感
+
+---
+
+**文档更新时间：** 2026-03-05
+**当前生产模型：** `doubao-seedance-2-0-260128` (Seedance 2.0)

@@ -134,7 +134,7 @@ def generate_long_video_with_progress(
             try:
                 video_url, response, current_last_frame = client.video_generation(
                     content_items=content_items,
-                    model="doubao-seedance-1-5-pro-251215",
+                    model="doubao-seedance-2-0-260128",
                     resolution=resolution,
                     ratio=ratio,
                     duration=duration,

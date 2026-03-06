@@ -102,7 +102,7 @@ python scripts/video_agent_client.py --url http://localhost:5000
 
 ## 五、注意事项
 
-1. **视频生成模型**：`doubao-seedance-1-5-pro-251215` 需在火山引擎开通对应模型权限。
+1. **视频生成模型**：`doubao-seedance-2-0-260128` 需在火山引擎开通对应模型权限。
 2. **视频存储**：未配置 `COZE_BUCKET_*` 时，视频自动保存到 `output/videos/`，可通过 `file://` 路径打开；设置 `LOCAL_VIDEO_BASE_URL=http://localhost:5000` 可生成可点击的 HTTP 链接（`http://localhost:5000/videos/xxx.mp4`）。
 3. **本地无 Coze 网关**：请求无需 Coze 平台 token，客户端传 `local` 或任意字符串即可。
 4. **积分消耗**：本地运行时，LLM 和视频生成调用的是你自己的 API Key，消耗的是火山引擎/豆包账户的配额，与 Coze 平台积分无关。
